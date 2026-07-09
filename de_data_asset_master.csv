@@ -1,0 +1,4 @@
+asset_id,project_id,asset_name,storage,data_path,layer,purpose,owner,refresh_frequency
+501,1,conversion_training_data,Gen1,gen1/models/conversion/training,Silver,Training input,Karthik,Monthly
+502,1,conversion_scoring_data,Gen2,gen2/models/conversion/scoring,Silver,Scoring input,Karthik,Daily
+503,1,conversion_prediction_output,Gen2,gen2/models/conversion/predictions,Gold,Prediction output,Karthik,Daily
