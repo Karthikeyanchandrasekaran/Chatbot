@@ -1,0 +1,3 @@
+pipeline_id,project_id,pipeline_name,schedule,purpose,owner,last_run_status
+301,1,pl_daily_conversion_scoring,Daily 6 AM,Runs daily conversion scoring,Karthik,Success
+302,2,pl_daily_churn_scoring,Daily 7 AM,Runs daily churn scoring,Karthik,Success
