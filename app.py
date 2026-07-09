@@ -1,6 +1,8 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
 
 st.set_page_config(
     page_title="Data Engineering Assistant",
@@ -27,31 +29,125 @@ model_metrics = pd.read_csv("de_model_metric_history.csv")
 pipeline_metrics["metric_date"] = pd.to_datetime(pipeline_metrics["metric_date"])
 model_metrics["metric_date"] = pd.to_datetime(model_metrics["metric_date"])
 
-
 # -----------------------------
-# Helper functions
+# Basic helpers
 # -----------------------------
 def format_table(df):
     if df.empty:
         return "No records found."
     return df.to_markdown(index=False)
 
-
 def find_project(question):
     q = question.lower()
 
     for _, row in projects.iterrows():
-        if row["project_name"].lower() in q:
+        if str(row["project_name"]).lower() in q:
             return row
 
     for _, row in models.iterrows():
-        if row["model_name"].lower() in q:
+        if str(row["model_name"]).lower() in q:
             project_id = row["project_id"]
-            return projects[projects["project_id"] == project_id].iloc[0]
+            match = projects[projects["project_id"] == project_id]
+            if not match.empty:
+                return match.iloc[0]
+
+    results = dynamic_search(question, top_n=1)
+    if not results.empty:
+        project_id = results.iloc[0]["project_id"]
+        if pd.notna(project_id):
+            match = projects[projects["project_id"] == int(project_id)]
+            if not match.empty:
+                return match.iloc[0]
 
     return None
 
+# -----------------------------
+# Dynamic search index
+# -----------------------------
+def build_search_index():
+    rows = []
 
+    tables = {
+        "Project": projects,
+        "Model": models,
+        "Synapse Notebook": notebooks,
+        "ADF Pipeline": pipelines,
+        "Git Script": scripts,
+        "Data Asset": data_assets,
+        "Dashboard": dashboards,
+        "Document": documents,
+        "Relationship": relationships
+    }
+
+    for table_name, df in tables.items():
+        for _, row in df.iterrows():
+            text = " ".join([str(v) for v in row.values])
+
+            project_id = row["project_id"] if "project_id" in row.index else None
+
+            rows.append({
+                "table_name": table_name,
+                "project_id": project_id,
+                "search_text": text,
+                "record": row.to_dict()
+            })
+
+    return pd.DataFrame(rows)
+
+search_index = build_search_index()
+
+vectorizer = TfidfVectorizer(stop_words="english")
+search_matrix = vectorizer.fit_transform(search_index["search_text"])
+
+def dynamic_search(question, top_n=5):
+    query_vector = vectorizer.transform([question])
+    scores = cosine_similarity(query_vector, search_matrix).flatten()
+
+    results = search_index.copy()
+    results["score"] = scores
+    results = results.sort_values("score", ascending=False).head(top_n)
+
+    return results[results["score"] > 0.05]
+
+def dynamic_answer(question):
+    results = dynamic_search(question, top_n=6)
+
+    if results.empty:
+        available = "\n".join([f"- {p}" for p in projects["project_name"].tolist()])
+        return f"""
+I could not find a strong match.
+
+Available projects:
+
+{available}
+
+Try asking:
+- Where is conversion scoring?
+- Show ADF pipeline for Customer Conversion
+- Which Git scripts are used for churn?
+- Show model metrics for conversion model
+"""
+
+    response = "### Best matching engineering assets\n\n"
+
+    for _, result in results.iterrows():
+        record = result["record"]
+        table_name = result["table_name"]
+        score = round(result["score"], 2)
+
+        response += f"#### {table_name}  \n"
+        response += f"Match score: `{score}`\n\n"
+
+        for key, value in record.items():
+            response += f"- **{key}**: {value}\n"
+
+        response += "\n---\n\n"
+
+    return response
+
+# -----------------------------
+# Project 360
+# -----------------------------
 def project_360(project_id):
     project = projects[projects["project_id"] == project_id].iloc[0]
 
@@ -88,11 +184,13 @@ def project_360(project_id):
 
 ### Documentation
 {format_table(documents[documents['project_id'] == project_id])}
+
+### Relationships / Lineage
+{format_table(relationships[relationships['project_id'] == project_id])}
 """
 
-
 # -----------------------------
-# Pipeline Metrics
+# Pipeline metrics
 # -----------------------------
 def show_pipeline_metrics(project_id):
     df = pipeline_metrics[pipeline_metrics["project_id"] == project_id]
@@ -148,9 +246,8 @@ def show_pipeline_metrics(project_id):
     with st.expander("View pipeline metrics data"):
         st.dataframe(df, use_container_width=True)
 
-
 # -----------------------------
-# Model Metrics
+# Model metrics
 # -----------------------------
 def show_model_metrics(project_id):
     df = model_metrics[model_metrics["project_id"] == project_id]
@@ -203,102 +300,78 @@ def show_model_metrics(project_id):
     with st.expander("View model metrics data"):
         st.dataframe(df, use_container_width=True)
 
-
-# -----------------------------
-# Combined Metrics
-# -----------------------------
 def show_all_metrics(project_id):
     show_pipeline_metrics(project_id)
     st.divider()
     show_model_metrics(project_id)
 
-
 # -----------------------------
-# Text Answers
+# Intent detection
 # -----------------------------
-def answer_question(question):
-    q = question.lower()
-    project = find_project(question)
+def is_metric_question(q):
+    keywords = [
+        "metric", "metrics", "chart", "trend", "kpi",
+        "performance", "accuracy", "precision", "recall",
+        "f1", "auc", "success rate", "health"
+    ]
+    return any(word in q for word in keywords)
 
-    if project is None:
-        available = "\n".join([f"- {p}" for p in projects["project_name"].tolist()])
-        return f"I could not identify the project/model. Available projects:\n\n{available}"
+def is_model_metric_question(q):
+    keywords = [
+        "model metric", "model metrics", "model performance",
+        "accuracy", "precision", "recall", "f1", "auc"
+    ]
+    return any(word in q for word in keywords)
 
-    project_id = project["project_id"]
-    project_name = project["project_name"]
+def is_pipeline_metric_question(q):
+    keywords = [
+        "pipeline metric", "pipeline metrics", "adf metric",
+        "adf metrics", "engineering metric", "engineering metrics",
+        "success rate", "pipeline health", "adf health"
+    ]
+    return any(word in q for word in keywords)
 
-    if "360" in q or "complete" in q or "overview" in q or "details" in q:
-        return project_360(project_id)
-
-    if "model" in q:
-        return f"### Models for {project_name}\n\n{format_table(models[models['project_id'] == project_id])}"
-
-    if "notebook" in q or "synapse" in q:
-        return f"### Synapse Notebooks for {project_name}\n\n{format_table(notebooks[notebooks['project_id'] == project_id])}"
-
-    if "pipeline" in q or "adf" in q:
-        return f"### ADF Pipelines for {project_name}\n\n{format_table(pipelines[pipelines['project_id'] == project_id])}"
-
-    if "git" in q or "script" in q or "repo" in q or "code" in q:
-        return f"### Git Scripts for {project_name}\n\n{format_table(scripts[scripts['project_id'] == project_id])}"
-
-    if "data" in q or "path" in q or "gen1" in q or "gen2" in q:
-        return f"### Data Assets for {project_name}\n\n{format_table(data_assets[data_assets['project_id'] == project_id])}"
-
-    if "dashboard" in q or "power bi" in q:
-        return f"### Dashboards for {project_name}\n\n{format_table(dashboards[dashboards['project_id'] == project_id])}"
-
-    if "wiki" in q or "document" in q or "documentation" in q:
-        return f"### Documentation for {project_name}\n\n{format_table(documents[documents['project_id'] == project_id])}"
-
-    if "lineage" in q or "relationship" in q or "graph" in q:
-        return f"### Engineering Relationships for {project_name}\n\n{format_table(relationships[relationships['project_id'] == project_id])}"
-
-    return project_360(project_id)
-
+def is_project_360_question(q):
+    keywords = ["360", "complete", "overview", "full details", "project details", "everything"]
+    return any(word in q for word in keywords)
 
 # -----------------------------
 # UI
 # -----------------------------
 st.title("🤖 Data Engineering Assistant")
 st.caption(
-    "Ask about projects, models, Synapse notebooks, ADF pipelines, Git scripts, data paths, dashboards, wiki, lineage, and metrics."
+    "Dynamic free POV chatbot for projects, models, Synapse notebooks, ADF pipelines, Git scripts, data paths, dashboards, wiki, lineage, and metrics."
 )
 
 with st.sidebar:
-    st.header("Try these prompts")
+    st.header("Example questions")
     st.markdown("""
 - Show Customer Conversion project 360
-- Show ADF pipeline for Customer Conversion
-- Show Git scripts for Customer Conversion
+- Where is conversion scoring happening?
+- Which Git code is used for churn?
 - Show data paths for Customer Conversion
 - Show lineage for Customer Conversion
-- Show pipeline metrics for Customer Conversion
 - Show model metrics for Customer Conversion
+- Show pipeline health for Customer Conversion
 - Show all metrics for Customer Conversion
-- Show model performance chart for Customer Conversion
-- Show AUC trend for Customer Conversion
+- Show AUC trend for conversion model
 """)
-
 
 if "messages" not in st.session_state:
     st.session_state.messages = [
         {
             "role": "assistant",
-            "content": "Hi! Ask me about projects, ADF, Synapse, Git, data paths, lineage, or metrics."
+            "content": "Hi! Ask me anything about your engineering assets or metrics."
         }
     ]
-
 
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
-
 prompt = st.chat_input(
     "Ask about projects, models, notebooks, ADF, Git, data paths, dashboards, wiki, lineage, or metrics..."
 )
-
 
 if prompt:
     st.session_state.messages.append({"role": "user", "content": prompt})
@@ -309,77 +382,35 @@ if prompt:
     q = prompt.lower()
     project = find_project(prompt)
 
-    metric_keywords = [
-        "metric",
-        "metrics",
-        "chart",
-        "trend",
-        "kpi",
-        "performance",
-        "accuracy",
-        "precision",
-        "recall",
-        "f1",
-        "auc",
-        "success rate"
-    ]
-
-    pipeline_keywords = [
-        "pipeline metric",
-        "pipeline metrics",
-        "adf metric",
-        "adf metrics",
-        "engineering metric",
-        "engineering metrics",
-        "success rate"
-    ]
-
-    model_metric_keywords = [
-        "model metric",
-        "model metrics",
-        "model performance",
-        "accuracy",
-        "precision",
-        "recall",
-        "f1",
-        "auc"
-    ]
-
     with st.chat_message("assistant"):
-        if project is not None and any(word in q for word in metric_keywords):
+        if project is not None and is_metric_question(q):
+            project_id = project["project_id"]
+            project_name = project["project_name"]
 
-            if any(word in q for word in model_metric_keywords):
-                st.markdown(f"Showing model performance metrics for **{project['project_name']}**")
-                show_model_metrics(project["project_id"])
+            if is_model_metric_question(q):
+                st.markdown(f"Showing model performance metrics for **{project_name}**")
+                show_model_metrics(project_id)
+                assistant_text = f"Showing model performance metrics for {project_name}"
 
-                st.session_state.messages.append({
-                    "role": "assistant",
-                    "content": f"Showing model performance metrics for {project['project_name']}"
-                })
-
-            elif any(word in q for word in pipeline_keywords):
-                st.markdown(f"Showing pipeline engineering metrics for **{project['project_name']}**")
-                show_pipeline_metrics(project["project_id"])
-
-                st.session_state.messages.append({
-                    "role": "assistant",
-                    "content": f"Showing pipeline engineering metrics for {project['project_name']}"
-                })
+            elif is_pipeline_metric_question(q):
+                st.markdown(f"Showing pipeline engineering metrics for **{project_name}**")
+                show_pipeline_metrics(project_id)
+                assistant_text = f"Showing pipeline engineering metrics for {project_name}"
 
             else:
-                st.markdown(f"Showing all engineering and model metrics for **{project['project_name']}**")
-                show_all_metrics(project["project_id"])
+                st.markdown(f"Showing all engineering and model metrics for **{project_name}**")
+                show_all_metrics(project_id)
+                assistant_text = f"Showing all metrics for {project_name}"
 
-                st.session_state.messages.append({
-                    "role": "assistant",
-                    "content": f"Showing all metrics for {project['project_name']}"
-                })
+        elif project is not None and is_project_360_question(q):
+            assistant_text = project_360(project["project_id"])
+            st.markdown(assistant_text)
 
         else:
-            response = answer_question(prompt)
-            st.markdown(response)
+            assistant_text = dynamic_answer(prompt)
+            st.markdown(assistant_text)
 
-            st.session_state.messages.append({
-                "role": "assistant",
-                "content": response
-            })
+    st.session_state.messages.append({
+        "role": "assistant",
+        "content": assistant_text
+    })
