@@ -1,0 +1,4 @@
+script_id,project_id,repo_name,script_name,file_path,purpose,owner
+401,1,ml-framework-repo,feature_engineering.py,/src/features/feature_engineering.py,Creates conversion features,Karthik
+402,1,ml-framework-repo,scoring_utils.py,/src/scoring/scoring_utils.py,Reusable scoring utilities,Karthik
+403,2,churn-ml-repo,churn_features.py,/src/features/churn_features.py,Creates churn features,Karthik
