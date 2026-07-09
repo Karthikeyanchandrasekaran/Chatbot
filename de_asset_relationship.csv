@@ -1,0 +1,7 @@
+relationship_id,project_id,source_object_type,source_object_name,target_object_type,target_object_name,relationship_type
+1,1,Training Data,conversion_training_data,Notebook,train_conversion_model,used_by
+2,1,Notebook,train_conversion_model,Model Artifact,conversion_model,creates
+3,1,ADF Pipeline,pl_daily_conversion_scoring,Notebook,score_conversion_model,executes
+4,1,Notebook,score_conversion_model,Data Asset,conversion_prediction_output,creates
+5,1,Data Asset,conversion_prediction_output,Dashboard,Model Performance Dashboard,consumed_by
+6,1,Wiki,Customer Conversion Wiki,Project,Customer Conversion,documents
