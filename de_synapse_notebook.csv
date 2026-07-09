@@ -1,0 +1,5 @@
+notebook_id,project_id,notebook_name,notebook_type,workspace,notebook_path,purpose,owner
+201,1,train_conversion_model,Training,Synapse-ML,/models/conversion/train,Trains conversion model,Karthik
+202,1,score_conversion_model,Scoring,Synapse-ML,/models/conversion/score,Scores conversion model,Karthik
+203,2,train_churn_model,Training,Synapse-ML,/models/churn/train,Trains churn model,Karthik
+204,2,score_churn_model,Scoring,Synapse-ML,/models/churn/score,Scores churn model,Karthik
