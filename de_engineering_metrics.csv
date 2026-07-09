@@ -1,0 +1,11 @@
+metric_date,project_id,project_name,metric_name,metric_value
+2026-07-01,1,Customer Conversion,pipeline_success_rate,98
+2026-07-02,1,Customer Conversion,pipeline_success_rate,99
+2026-07-03,1,Customer Conversion,pipeline_success_rate,97
+2026-07-04,1,Customer Conversion,pipeline_success_rate,100
+2026-07-05,1,Customer Conversion,pipeline_success_rate,99
+2026-07-01,2,Churn Prediction,pipeline_success_rate,96
+2026-07-02,2,Churn Prediction,pipeline_success_rate,97
+2026-07-03,2,Churn Prediction,pipeline_success_rate,98
+2026-07-04,2,Churn Prediction,pipeline_success_rate,97
+2026-07-05,2,Churn Prediction,pipeline_success_rate,99
