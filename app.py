@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import plotly.express as px
 
 st.set_page_config(
     page_title="Data Engineering Assistant",
@@ -7,6 +8,9 @@ st.set_page_config(
     layout="wide"
 )
 
+# -----------------------------
+# Load CSV files
+# -----------------------------
 projects = pd.read_csv("de_project_master.csv")
 models = pd.read_csv("de_model_master.csv")
 notebooks = pd.read_csv("de_synapse_notebook.csv")
@@ -17,8 +21,21 @@ dashboards = pd.read_csv("de_dashboard_master.csv")
 documents = pd.read_csv("de_document_master.csv")
 relationships = pd.read_csv("de_asset_relationship.csv")
 
-st.title("🤖 Data Engineering Assistant")
-st.caption("Ask about projects, models, Synapse notebooks, ADF pipelines, Git scripts, data assets, dashboards, wiki, and lineage.")
+pipeline_metrics = pd.read_csv("de_engineering_metrics.csv")
+model_metrics = pd.read_csv("de_model_metric_history.csv")
+
+pipeline_metrics["metric_date"] = pd.to_datetime(pipeline_metrics["metric_date"])
+model_metrics["metric_date"] = pd.to_datetime(model_metrics["metric_date"])
+
+
+# -----------------------------
+# Helper functions
+# -----------------------------
+def format_table(df):
+    if df.empty:
+        return "No records found."
+    return df.to_markdown(index=False)
+
 
 def find_project(question):
     q = question.lower()
@@ -34,21 +51,9 @@ def find_project(question):
 
     return None
 
-def format_table(df):
-    if df.empty:
-        return "No records found."
-    return df.to_markdown(index=False)
 
 def project_360(project_id):
     project = projects[projects["project_id"] == project_id].iloc[0]
-
-    project_models = models[models["project_id"] == project_id]
-    project_notebooks = notebooks[notebooks["project_id"] == project_id]
-    project_pipelines = pipelines[pipelines["project_id"] == project_id]
-    project_scripts = scripts[scripts["project_id"] == project_id]
-    project_data = data_assets[data_assets["project_id"] == project_id]
-    project_dashboards = dashboards[dashboards["project_id"] == project_id]
-    project_docs = documents[documents["project_id"] == project_id]
 
     return f"""
 ## Project 360: {project['project_name']}
@@ -64,27 +69,153 @@ def project_360(project_id):
 | Created Date | {project['created_date']} |
 
 ### Models
-{format_table(project_models)}
+{format_table(models[models['project_id'] == project_id])}
 
 ### Synapse Notebooks
-{format_table(project_notebooks)}
+{format_table(notebooks[notebooks['project_id'] == project_id])}
 
 ### ADF Pipelines
-{format_table(project_pipelines)}
+{format_table(pipelines[pipelines['project_id'] == project_id])}
 
 ### Git Scripts
-{format_table(project_scripts)}
+{format_table(scripts[scripts['project_id'] == project_id])}
 
 ### Data Assets
-{format_table(project_data)}
+{format_table(data_assets[data_assets['project_id'] == project_id])}
 
 ### Dashboards
-{format_table(project_dashboards)}
+{format_table(dashboards[dashboards['project_id'] == project_id])}
 
 ### Documentation
-{format_table(project_docs)}
+{format_table(documents[documents['project_id'] == project_id])}
 """
 
+
+# -----------------------------
+# Pipeline Metrics
+# -----------------------------
+def show_pipeline_metrics(project_id):
+    df = pipeline_metrics[pipeline_metrics["project_id"] == project_id]
+
+    if df.empty:
+        st.warning("No pipeline metrics found for this project.")
+        return
+
+    latest_date = df["metric_date"].max()
+    latest = df[df["metric_date"] == latest_date]
+    metric_map = latest.set_index("metric_name")["metric_value"].to_dict()
+
+    st.subheader("ADF / Engineering Pipeline Metrics")
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        success_rate = metric_map.get("pipeline_success_rate", None)
+        st.metric(
+            "Pipeline Success Rate",
+            f"{success_rate}%" if success_rate is not None else "NA"
+        )
+
+    with col2:
+        st.metric(
+            "Total Pipelines",
+            len(pipelines[pipelines["project_id"] == project_id])
+        )
+
+    with col3:
+        st.metric(
+            "Total Notebooks",
+            len(notebooks[notebooks["project_id"] == project_id])
+        )
+
+    fig = px.line(
+        df,
+        x="metric_date",
+        y="metric_value",
+        color="metric_name",
+        markers=True,
+        title="Pipeline / Engineering Metrics Trend"
+    )
+
+    fig.update_layout(
+        xaxis_title="Date",
+        yaxis_title="Metric Value",
+        hovermode="x unified"
+    )
+
+    st.plotly_chart(fig, use_container_width=True)
+
+    with st.expander("View pipeline metrics data"):
+        st.dataframe(df, use_container_width=True)
+
+
+# -----------------------------
+# Model Metrics
+# -----------------------------
+def show_model_metrics(project_id):
+    df = model_metrics[model_metrics["project_id"] == project_id]
+
+    if df.empty:
+        st.warning("No model metrics found for this project.")
+        return
+
+    latest_date = df["metric_date"].max()
+    latest = df[df["metric_date"] == latest_date]
+    metric_map = latest.set_index("metric_name")["metric_value"].to_dict()
+
+    st.subheader("Model Performance Metrics")
+
+    col1, col2, col3, col4, col5 = st.columns(5)
+
+    with col1:
+        st.metric("Accuracy", f"{metric_map.get('accuracy', 0):.2f}")
+
+    with col2:
+        st.metric("Precision", f"{metric_map.get('precision', 0):.2f}")
+
+    with col3:
+        st.metric("Recall", f"{metric_map.get('recall', 0):.2f}")
+
+    with col4:
+        st.metric("F1 Score", f"{metric_map.get('f1_score', 0):.2f}")
+
+    with col5:
+        st.metric("AUC", f"{metric_map.get('auc', 0):.2f}")
+
+    fig = px.line(
+        df,
+        x="metric_date",
+        y="metric_value",
+        color="metric_name",
+        markers=True,
+        title="Model Metrics Trend"
+    )
+
+    fig.update_layout(
+        xaxis_title="Date",
+        yaxis_title="Metric Value",
+        yaxis_range=[0, 1],
+        hovermode="x unified"
+    )
+
+    st.plotly_chart(fig, use_container_width=True)
+
+    with st.expander("View model metrics data"):
+        st.dataframe(df, use_container_width=True)
+
+
+# -----------------------------
+# Combined Metrics
+# -----------------------------
+def show_all_metrics(project_id):
+    show_pipeline_metrics(project_id)
+    st.divider()
+    show_model_metrics(project_id)
+
+
+# -----------------------------
+# Text Answers
+# -----------------------------
 def answer_question(question):
     q = question.lower()
     project = find_project(question)
@@ -125,19 +256,49 @@ def answer_question(question):
 
     return project_360(project_id)
 
+
+# -----------------------------
+# UI
+# -----------------------------
+st.title("🤖 Data Engineering Assistant")
+st.caption(
+    "Ask about projects, models, Synapse notebooks, ADF pipelines, Git scripts, data paths, dashboards, wiki, lineage, and metrics."
+)
+
+with st.sidebar:
+    st.header("Try these prompts")
+    st.markdown("""
+- Show Customer Conversion project 360
+- Show ADF pipeline for Customer Conversion
+- Show Git scripts for Customer Conversion
+- Show data paths for Customer Conversion
+- Show lineage for Customer Conversion
+- Show pipeline metrics for Customer Conversion
+- Show model metrics for Customer Conversion
+- Show all metrics for Customer Conversion
+- Show model performance chart for Customer Conversion
+- Show AUC trend for Customer Conversion
+""")
+
+
 if "messages" not in st.session_state:
     st.session_state.messages = [
         {
             "role": "assistant",
-            "content": "Hi! Ask me: Show Customer Conversion project 360, Which ADF pipeline runs conversion, or Show Git scripts for Customer Conversion."
+            "content": "Hi! Ask me about projects, ADF, Synapse, Git, data paths, lineage, or metrics."
         }
     ]
+
 
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
-prompt = st.chat_input("Ask about projects, models, notebooks, ADF, Git, data paths, dashboard, wiki, or lineage...")
+
+prompt = st.chat_input(
+    "Ask about projects, models, notebooks, ADF, Git, data paths, dashboards, wiki, lineage, or metrics..."
+)
+
 
 if prompt:
     st.session_state.messages.append({"role": "user", "content": prompt})
@@ -145,9 +306,80 @@ if prompt:
     with st.chat_message("user"):
         st.markdown(prompt)
 
-    response = answer_question(prompt)
+    q = prompt.lower()
+    project = find_project(prompt)
 
-    st.session_state.messages.append({"role": "assistant", "content": response})
+    metric_keywords = [
+        "metric",
+        "metrics",
+        "chart",
+        "trend",
+        "kpi",
+        "performance",
+        "accuracy",
+        "precision",
+        "recall",
+        "f1",
+        "auc",
+        "success rate"
+    ]
+
+    pipeline_keywords = [
+        "pipeline metric",
+        "pipeline metrics",
+        "adf metric",
+        "adf metrics",
+        "engineering metric",
+        "engineering metrics",
+        "success rate"
+    ]
+
+    model_metric_keywords = [
+        "model metric",
+        "model metrics",
+        "model performance",
+        "accuracy",
+        "precision",
+        "recall",
+        "f1",
+        "auc"
+    ]
 
     with st.chat_message("assistant"):
-        st.markdown(response)
+        if project is not None and any(word in q for word in metric_keywords):
+
+            if any(word in q for word in model_metric_keywords):
+                st.markdown(f"Showing model performance metrics for **{project['project_name']}**")
+                show_model_metrics(project["project_id"])
+
+                st.session_state.messages.append({
+                    "role": "assistant",
+                    "content": f"Showing model performance metrics for {project['project_name']}"
+                })
+
+            elif any(word in q for word in pipeline_keywords):
+                st.markdown(f"Showing pipeline engineering metrics for **{project['project_name']}**")
+                show_pipeline_metrics(project["project_id"])
+
+                st.session_state.messages.append({
+                    "role": "assistant",
+                    "content": f"Showing pipeline engineering metrics for {project['project_name']}"
+                })
+
+            else:
+                st.markdown(f"Showing all engineering and model metrics for **{project['project_name']}**")
+                show_all_metrics(project["project_id"])
+
+                st.session_state.messages.append({
+                    "role": "assistant",
+                    "content": f"Showing all metrics for {project['project_name']}"
+                })
+
+        else:
+            response = answer_question(prompt)
+            st.markdown(response)
+
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": response
+            })
